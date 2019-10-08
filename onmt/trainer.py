@@ -10,7 +10,6 @@
 """
 
 from copy import deepcopy
-import itertools
 import torch
 import traceback
 
@@ -59,7 +58,7 @@ def build_trainer(opt, device_id, model, fields, optim, model_saver=None):
         opt.early_stopping, scorers=onmt.utils.scorers_from_opts(opt)) \
         if opt.early_stopping > 0 else None
 
-    report_manager = onmt.utils.build_report_manager(opt)
+    report_manager = onmt.utils.build_report_manager(opt, gpu_rank)
     trainer = onmt.Trainer(model, train_loss, valid_loss, optim, trunc_size,
                            shard_size, norm_method,
                            accum_count, accum_steps,
@@ -221,14 +220,9 @@ class Trainer(object):
         report_stats = onmt.utils.Statistics()
         self._start_report_manager(start_time=total_stats.start_time)
 
-        if self.n_gpu > 1:
-            train_iter = itertools.islice(
-                train_iter, self.gpu_rank, None, self.n_gpu)
-
         for i, (batches, normalization) in enumerate(
                 self._accum_batches(train_iter)):
             step = self.optim.training_step
-
             # UPDATE DROPOUT
             self._maybe_update_dropout(step)
 
@@ -300,7 +294,7 @@ class Trainer(object):
             valid_model = deepcopy(self.model)
             for avg, param in zip(self.moving_average,
                                   valid_model.parameters()):
-                param.data = avg.data.half() if self.model_dtype == "fp16" \
+                param.data = avg.data.half() if self.optim._fp16 == "legacy" \
                     else avg.data
         else:
             valid_model = self.model
